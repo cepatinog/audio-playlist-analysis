@@ -1,0 +1,9 @@
+tensorflow==2.8.0
+essentia-tensorflow
+streamlit
+pandas
+numpy
+matplotlib
+seaborn
+tqdm
+scikit-learn
