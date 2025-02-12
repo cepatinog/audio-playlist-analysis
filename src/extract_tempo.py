@@ -76,7 +76,7 @@ def extract_tempo_tempocnn(audio_file, model_file):
     """
     sr = 11025  # Sample rate required by TempoCNN
     print(f"Loading audio file: {audio_file} at sample rate {sr} Hz")
-    audio = es.MonoLoader(filename=audio_file, sampleRate=sr)()
+    audio = es.MonoLoader(filename=audio_file, sampleRate=sr, resampleQuality=4)()
 
     # Instantiate TempoCNN using the provided model file.
     # Ensure you have downloaded the model (e.g., deeptemp-k16-3.pb) beforehand.
