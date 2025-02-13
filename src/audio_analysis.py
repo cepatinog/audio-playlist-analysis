@@ -19,6 +19,7 @@ import csv
 import traceback
 from tqdm import tqdm
 import essentia.standard as es
+import numpy as np
 
 # Import our feature extractor functions using relative imports.
 from .extract_tempo import extract_tempo_features
@@ -28,6 +29,7 @@ from .extract_embeddings import extract_discogs_effnet_embeddings, extract_msd_m
 from .extract_genre import extract_genre_features
 from .extract_voice_instrumental import extract_voice_instrumental
 from .extract_danceability import extract_danceability_features
+from .extract_arousal_valence import extract_arousal_valence_features
 from .load_audio import load_audio_file
 
 # Define acceptable audio file extensions.
@@ -40,7 +42,8 @@ def extract_all_features(audio_dict,
                            emb_msd_model_file=None,
                            genre_model_file=None,
                            voice_model_file=None,
-                           danceability_model_file=None):
+                           danceability_model_file=None,
+                           emotion_model_file=None):
     """
     Extract all features using the pre-computed audio versions.
 
@@ -83,7 +86,7 @@ def extract_all_features(audio_dict,
     # The embedding models expect a mono audio signal at 16kHz.
 
     # --- Embedding and Genre & Voice/Dance Extraction ---
-    if emb_discogs_model_file or emb_msd_model_file or genre_model_file or voice_model_file or danceability_model_file:
+    if emb_discogs_model_file or emb_msd_model_file or genre_model_file or voice_model_file or danceability_model_file or emotion_model_file:
         mono_embeddings = es.Resample(inputSampleRate=audio_dict['sampleRate'], 
                                       outputSampleRate=16000)(audio_dict['mono_audio'])
         if emb_discogs_model_file:
@@ -101,6 +104,22 @@ def extract_all_features(audio_dict,
         if emb_msd_model_file:
             msd_emb = extract_msd_musicnn_embeddings(mono_embeddings, model_file=emb_msd_model_file)
             features["emb_msd"] = msd_emb.tolist()
+
+        # --- Arousal/Valence Extraction ---
+        if emotion_model_file:
+            # In this case, we use MSD-MusicCNN embeddings.
+            # Load or reuse msd embeddings; here, we'll use msd_emb if already computed.
+            # Alternatively, resample the mono audio to 16kHz and compute the embedding again.
+            # We'll assume that msd_emb is available; if not, compute it.
+            if 'emb_msd' not in features:
+                msd_emb = extract_msd_musicnn_embeddings(mono_embeddings, model_file=emb_msd_model_file)
+            else:
+                # Convert list back to numpy array.
+                msd_emb = np.array(features["emb_msd"])
+            emotion_predictions = extract_arousal_valence_features(mono_embeddings, 
+                                                                    embedding_model_file=emb_msd_model_file, 
+                                                                    regression_model_file=emotion_model_file)
+            features["arousal_valence"] = emotion_predictions
 
     # --- Optionally, if no classifier model provided, use signal-based danceability extraction ---
     if danceability_model_file is None:
@@ -187,6 +206,8 @@ if __name__ == '__main__':
     voice_model_file = os.path.join(src_dir, 'voice_instrumental-discogs-effnet-1.pb')
     # Specify the daceability model file.
     danceability_model_file = os.path.join(src_dir, 'danceability-discogs-effnet-1.pb')
+    # Specify the emotion model file.
+    emotion_model_file = os.path.join(src_dir, 'emomusic-msd-musicnn-2.pb')
 
 
     process_all_audio(raw_dir, output_csv,
@@ -196,5 +217,6 @@ if __name__ == '__main__':
                       emb_msd_model_file=emb_msd_model_file,
                       genre_model_file=genre_model_file,
                       voice_model_file=voice_model_file,
-                      danceability_model_file=danceability_model_file)
+                      danceability_model_file=danceability_model_file,
+                      emotion_model_file=emotion_model_file)
 
