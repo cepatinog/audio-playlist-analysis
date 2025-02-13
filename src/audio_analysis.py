@@ -9,8 +9,8 @@ using the helper function in load_audio.py, then:
   - Uses the mono audio (at 44100 Hz) for key extraction,
   - Uses the resampled mono audio (at 11025 Hz) for tempo extraction, and
   - Optionally, uses a mono version resampled to 16000 Hz for embedding extraction 
-    (Discogs-Effnet and MSD-MusicCNN).
-
+    (Discogs-Effnet and MSD-MusicCNN) and genre predictions.
+    
 The combined features are saved into a CSV file.
 """
 
@@ -22,9 +22,10 @@ import essentia.standard as es
 
 # Import our feature extractor functions using relative imports.
 from .extract_tempo import extract_tempo_features
-from .key_extraction import extract_key_features
+from .extract_key import extract_key_features
 from .extract_loudness import extract_loudness_features
 from .extract_embeddings import extract_discogs_effnet_embeddings, extract_msd_musicnn_embeddings
+from .extract_genre import extract_genre_features
 from .load_audio import load_audio_file
 
 # Define acceptable audio file extensions.
@@ -34,7 +35,8 @@ def extract_all_features(audio_dict,
                            tempo_method='tempocnn', 
                            tempo_model_file=None,
                            emb_discogs_model_file=None, 
-                           emb_msd_model_file=None):
+                           emb_msd_model_file=None,
+                           genre_model_file=None):
     """
     Extract all features using the pre-computed audio versions.
 
@@ -47,6 +49,7 @@ def extract_all_features(audio_dict,
         tempo_model_file (str): Path to the TempoCNN model (if required).
         emb_discogs_model_file (str): Path to the Discogs-Effnet model for embeddings (if provided).
         emb_msd_model_file (str): Path to the MSD-MusicCNN model for embeddings (if provided).
+        genre_model_file (str): Path to the Genre Discogs400 model (if genre predictions should be extracted).
 
     Returns:
         dict: Combined dictionary of extracted features.
@@ -72,14 +75,18 @@ def extract_all_features(audio_dict,
     for k, v in loudness_feats.items():
         features[f"loudness_{k}"] = v
 
-    # --- Embedding Extraction (if model files are provided) ---
+    # --- Embedding and Genre Extraction ---
     # The embedding models expect a mono audio signal at 16kHz.
-    if emb_discogs_model_file or emb_msd_model_file:
+    if emb_discogs_model_file or emb_msd_model_file or genre_model_file:
         mono_embeddings = es.Resample(inputSampleRate=audio_dict['sampleRate'], 
                                       outputSampleRate=16000)(audio_dict['mono_audio'])
         if emb_discogs_model_file:
             discogs_emb = extract_discogs_effnet_embeddings(mono_embeddings, model_file=emb_discogs_model_file)
             features["emb_discogs"] = discogs_emb.tolist()  # Convert to list for CSV storage.
+            # Extract genre activations if a genre model file is provided.
+            if genre_model_file:
+                genre_predictions = extract_genre_features(discogs_emb, model_file=genre_model_file)
+                features["genre_activations"] = genre_predictions.tolist()
         if emb_msd_model_file:
             msd_emb = extract_msd_musicnn_embeddings(mono_embeddings, model_file=emb_msd_model_file)
             features["emb_msd"] = msd_emb.tolist()
@@ -90,7 +97,8 @@ def process_all_audio(raw_dir, output_csv,
                       tempo_method='tempocnn', 
                       tempo_model_file=None,
                       emb_discogs_model_file=None, 
-                      emb_msd_model_file=None):
+                      emb_msd_model_file=None,
+                      genre_model_file=None):
     """
     Process all audio files in the raw directory, extract features, and save them in a CSV file.
 
@@ -101,6 +109,7 @@ def process_all_audio(raw_dir, output_csv,
         tempo_model_file (str): Path to the TempoCNN model (if required).
         emb_discogs_model_file (str): Path to the Discogs-Effnet model (if embeddings should be extracted).
         emb_msd_model_file (str): Path to the MSD-MusicCNN model (if embeddings should be extracted).
+        genre_model_file (str): Path to the Genre Discogs400 model (if genre predictions should be extracted).
     """
     results = []  # List to hold feature dictionaries for each file.
 
@@ -119,7 +128,8 @@ def process_all_audio(raw_dir, output_csv,
                                                     tempo_method=tempo_method,
                                                     tempo_model_file=tempo_model_file,
                                                     emb_discogs_model_file=emb_discogs_model_file,
-                                                    emb_msd_model_file=emb_msd_model_file)
+                                                    emb_msd_model_file=emb_msd_model_file,
+                                                    genre_model_file=genre_model_file)
                     # Include the file path in the feature dictionary.
                     features['file'] = audio_path
                     results.append(features)
@@ -153,12 +163,15 @@ if __name__ == '__main__':
     tempo_model_file = os.path.join(src_dir, 'deeptemp-k16-3.pb')
     tempo_method = 'tempocnn'
 
-    # Specify embedding model files (update filenames as necessary).
+    # Specify embedding model files.
     emb_discogs_model_file = os.path.join(src_dir, 'discogs-effnet-bs64-1.pb')
     emb_msd_model_file = os.path.join(src_dir, 'msd-musicnn-1.pb')
+    # Specify the genre model file.
+    genre_model_file = os.path.join(src_dir, 'genre_discogs400-discogs-effnet-1.pb')
 
     process_all_audio(raw_dir, output_csv,
                       tempo_method=tempo_method,
                       tempo_model_file=tempo_model_file,
                       emb_discogs_model_file=emb_discogs_model_file,
-                      emb_msd_model_file=emb_msd_model_file)
+                      emb_msd_model_file=emb_msd_model_file,
+                      genre_model_file=genre_model_file)

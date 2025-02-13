@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-key_extraction.py
+extract_key.py
 
 This module provides a function to extract key features from a given mono audio signal
 using Essentia’s KeyExtractor algorithm. It applies the algorithm three times—once for each
@@ -13,7 +13,7 @@ The returned dictionary contains:
 
 Example usage:
     import essentia.standard as es
-    from key_extraction import extract_key_features
+    from extract_key import extract_key_features
 
     audio = es.MonoLoader(filename='example.mp3')()
     features = extract_key_features(audio)
