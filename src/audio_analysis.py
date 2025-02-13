@@ -3,11 +3,13 @@
 audio_analysis.py
 
 This module processes an entire raw audio collection and extracts multiple features
-using modular extractor functions. For each audio file, it loads the file only once
+using modular extractor functions. For each audio file, it loads the file once
 using the helper function in load_audio.py, then:
   - Uses the stereo audio for loudness extraction,
-  - Uses the mono audio (at 44100 Hz) for key extraction, and
-  - Uses the resampled mono audio (at 11025 Hz) for tempo extraction.
+  - Uses the mono audio (at 44100 Hz) for key extraction,
+  - Uses the resampled mono audio (at 11025 Hz) for tempo extraction, and
+  - Optionally, uses a mono version resampled to 16000 Hz for embedding extraction 
+    (Discogs-Effnet and MSD-MusicCNN).
 
 The combined features are saved into a CSV file.
 """
@@ -18,19 +20,21 @@ import traceback
 from tqdm import tqdm
 import essentia.standard as es
 
-# Import our feature extractor functions
+# Import our feature extractor functions using relative imports.
 from .extract_tempo import extract_tempo_features
 from .key_extraction import extract_key_features
 from .extract_loudness import extract_loudness_features
+from .extract_embeddings import extract_discogs_effnet_embeddings, extract_msd_musicnn_embeddings
 from .load_audio import load_audio_file
 
-# Import our audio loading helper function
-#from load_audio import load_audio_file
-
-# Define acceptable audio file extensions
+# Define acceptable audio file extensions.
 AUDIO_EXTENSIONS = ('.mp3', '.wav', '.flac', '.ogg', '.m4a')
 
-def extract_all_features(audio_dict, tempo_method='tempocnn', tempo_model_file=None):
+def extract_all_features(audio_dict, 
+                           tempo_method='tempocnn', 
+                           tempo_model_file=None,
+                           emb_discogs_model_file=None, 
+                           emb_msd_model_file=None):
     """
     Extract all features using the pre-computed audio versions.
 
@@ -41,27 +45,26 @@ def extract_all_features(audio_dict, tempo_method='tempocnn', tempo_model_file=N
                            'mono_tempo' (for tempo extraction).
         tempo_method (str): 'tempocnn' or 'rhythm' for tempo extraction.
         tempo_model_file (str): Path to the TempoCNN model (if required).
+        emb_discogs_model_file (str): Path to the Discogs-Effnet model for embeddings (if provided).
+        emb_msd_model_file (str): Path to the MSD-MusicCNN model for embeddings (if provided).
 
     Returns:
         dict: Combined dictionary of extracted features.
     """
     features = {}
-    
-    # --- Tempo Extraction (on mono_tempo) ---
+
+    # --- Tempo Extraction (using mono_tempo, which should be at 11025 Hz) ---
     tempo_feats = extract_tempo_features(audio_dict['mono_tempo'],
                                            method=tempo_method,
                                            model_file=tempo_model_file)
-    # Prefix tempo feature keys to avoid collisions.
     for k, v in tempo_feats.items():
         features[f"tempo_{k}"] = v
 
-    # --- Key Extraction (on mono_audio) ---
+    # --- Key Extraction (using mono_audio, which should be at 44100 Hz) ---
     key_feats = extract_key_features(audio_dict['mono_audio'])
     features.update(key_feats)
-    
-    # --- Loudness Extraction (on stereo_audio) ---
-    # Use a hopSize of 1024/44100 (which is ~0.0233 sec) here as in your example,
-    # or adjust as needed.
+
+    # --- Loudness Extraction (using stereo_audio, at 44100 Hz) ---
     loudness_feats = extract_loudness_features(audio_dict['stereo_audio'],
                                                hopSize=1024/44100,
                                                sampleRate=44100,
@@ -69,9 +72,25 @@ def extract_all_features(audio_dict, tempo_method='tempocnn', tempo_model_file=N
     for k, v in loudness_feats.items():
         features[f"loudness_{k}"] = v
 
+    # --- Embedding Extraction (if model files are provided) ---
+    # The embedding models expect a mono audio signal at 16kHz.
+    if emb_discogs_model_file or emb_msd_model_file:
+        mono_embeddings = es.Resample(inputSampleRate=audio_dict['sampleRate'], 
+                                      outputSampleRate=16000)(audio_dict['mono_audio'])
+        if emb_discogs_model_file:
+            discogs_emb = extract_discogs_effnet_embeddings(mono_embeddings, model_file=emb_discogs_model_file)
+            features["emb_discogs"] = discogs_emb.tolist()  # Convert to list for CSV storage.
+        if emb_msd_model_file:
+            msd_emb = extract_msd_musicnn_embeddings(mono_embeddings, model_file=emb_msd_model_file)
+            features["emb_msd"] = msd_emb.tolist()
+
     return features
 
-def process_all_audio(raw_dir, output_csv, tempo_method='tempocnn', tempo_model_file=None):
+def process_all_audio(raw_dir, output_csv, 
+                      tempo_method='tempocnn', 
+                      tempo_model_file=None,
+                      emb_discogs_model_file=None, 
+                      emb_msd_model_file=None):
     """
     Process all audio files in the raw directory, extract features, and save them in a CSV file.
 
@@ -80,9 +99,11 @@ def process_all_audio(raw_dir, output_csv, tempo_method='tempocnn', tempo_model_
         output_csv (str): Path to the CSV file where features will be saved.
         tempo_method (str): 'tempocnn' or 'rhythm' for tempo extraction.
         tempo_model_file (str): Path to the TempoCNN model (if required).
+        emb_discogs_model_file (str): Path to the Discogs-Effnet model (if embeddings should be extracted).
+        emb_msd_model_file (str): Path to the MSD-MusicCNN model (if embeddings should be extracted).
     """
     results = []  # List to hold feature dictionaries for each file.
-    
+
     # Walk through the raw directory recursively.
     for root, _, files in os.walk(raw_dir):
         for file in tqdm(files, desc=f"Processing files in {root}"):
@@ -93,42 +114,51 @@ def process_all_audio(raw_dir, output_csv, tempo_method='tempocnn', tempo_model_
                     audio_dict = load_audio_file(audio_path,
                                                  targetMonoSampleRate=44100,
                                                  targetTempoSampleRate=11025)
-                    
                     # Extract features from the loaded audio.
                     features = extract_all_features(audio_dict,
                                                     tempo_method=tempo_method,
-                                                    tempo_model_file=tempo_model_file)
+                                                    tempo_model_file=tempo_model_file,
+                                                    emb_discogs_model_file=emb_discogs_model_file,
+                                                    emb_msd_model_file=emb_msd_model_file)
                     # Include the file path in the feature dictionary.
                     features['file'] = audio_path
                     results.append(features)
                 except Exception as e:
                     print(f"Error processing {audio_path}: {e}")
                     traceback.print_exc()
-    
+
     # Write the results to a CSV file.
     if results:
         fieldnames = list(results[0].keys())
     else:
         fieldnames = []
-    
+
     with open(output_csv, 'w', newline='') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         for row in results:
             writer.writerow(row)
-    
+
     print(f"\nFeature extraction complete. Results saved to {output_csv}")
 
 if __name__ == '__main__':
     # Determine project root (assuming this file is in src/)
     src_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(src_dir, '..'))
-    
+
     raw_dir = os.path.join(project_root, 'data', 'raw')
     output_csv = os.path.join(project_root, 'data', 'processed', 'all_features.csv')
-    
+
     # For tempo extraction via TempoCNN, specify the model file path.
     tempo_model_file = os.path.join(src_dir, 'deeptemp-k16-3.pb')
     tempo_method = 'tempocnn'
-    
-    process_all_audio(raw_dir, output_csv, tempo_method=tempo_method, tempo_model_file=tempo_model_file)
+
+    # Specify embedding model files (update filenames as necessary).
+    emb_discogs_model_file = os.path.join(src_dir, 'discogs-effnet-bs64-1.pb')
+    emb_msd_model_file = os.path.join(src_dir, 'msd-musicnn-1.pb')
+
+    process_all_audio(raw_dir, output_csv,
+                      tempo_method=tempo_method,
+                      tempo_model_file=tempo_model_file,
+                      emb_discogs_model_file=emb_discogs_model_file,
+                      emb_msd_model_file=emb_msd_model_file)
