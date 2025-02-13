@@ -26,6 +26,8 @@ from .extract_key import extract_key_features
 from .extract_loudness import extract_loudness_features
 from .extract_embeddings import extract_discogs_effnet_embeddings, extract_msd_musicnn_embeddings
 from .extract_genre import extract_genre_features
+from .extract_voice_instrumental import extract_voice_instrumental
+from .extract_danceability import extract_danceability_features
 from .load_audio import load_audio_file
 
 # Define acceptable audio file extensions.
@@ -36,7 +38,9 @@ def extract_all_features(audio_dict,
                            tempo_model_file=None,
                            emb_discogs_model_file=None, 
                            emb_msd_model_file=None,
-                           genre_model_file=None):
+                           genre_model_file=None,
+                           voice_model_file=None,
+                           danceability_model_file=None):
     """
     Extract all features using the pre-computed audio versions.
 
@@ -77,19 +81,31 @@ def extract_all_features(audio_dict,
 
     # --- Embedding and Genre Extraction ---
     # The embedding models expect a mono audio signal at 16kHz.
-    if emb_discogs_model_file or emb_msd_model_file or genre_model_file:
+
+    # --- Embedding and Genre & Voice/Dance Extraction ---
+    if emb_discogs_model_file or emb_msd_model_file or genre_model_file or voice_model_file or danceability_model_file:
         mono_embeddings = es.Resample(inputSampleRate=audio_dict['sampleRate'], 
                                       outputSampleRate=16000)(audio_dict['mono_audio'])
         if emb_discogs_model_file:
             discogs_emb = extract_discogs_effnet_embeddings(mono_embeddings, model_file=emb_discogs_model_file)
-            features["emb_discogs"] = discogs_emb.tolist()  # Convert to list for CSV storage.
-            # Extract genre activations if a genre model file is provided.
+            features["emb_discogs"] = discogs_emb.tolist()
             if genre_model_file:
                 genre_predictions = extract_genre_features(discogs_emb, model_file=genre_model_file)
                 features["genre_activations"] = genre_predictions.tolist()
+            if voice_model_file:
+                voice_result = extract_voice_instrumental(discogs_emb, model_file=voice_model_file)
+                features["voice_instrumental"] = voice_result
+            if danceability_model_file:
+                dance_classifier = extract_danceability_features(discogs_emb, mode="classifier", model_file=danceability_model_file)
+                features["danceability_classifier"] = dance_classifier
         if emb_msd_model_file:
             msd_emb = extract_msd_musicnn_embeddings(mono_embeddings, model_file=emb_msd_model_file)
             features["emb_msd"] = msd_emb.tolist()
+
+    # --- Optionally, if no classifier model provided, use signal-based danceability extraction ---
+    if danceability_model_file is None:
+        dance_signal = extract_danceability_features(audio_dict['mono_audio'], mode="signal", sampleRate=44100)
+        features["danceability_signal"] = dance_signal
 
     return features
 
@@ -155,7 +171,6 @@ if __name__ == '__main__':
     # Determine project root (assuming this file is in src/)
     src_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(src_dir, '..'))
-
     raw_dir = os.path.join(project_root, 'data', 'raw')
     output_csv = os.path.join(project_root, 'data', 'processed', 'all_features.csv')
 
@@ -168,10 +183,18 @@ if __name__ == '__main__':
     emb_msd_model_file = os.path.join(src_dir, 'msd-musicnn-1.pb')
     # Specify the genre model file.
     genre_model_file = os.path.join(src_dir, 'genre_discogs400-discogs-effnet-1.pb')
+    # Specify the voice_instrumental model file.
+    voice_model_file = os.path.join(src_dir, 'voice_instrumental-discogs-effnet-1.pb')
+    # Specify the daceability model file.
+    danceability_model_file = os.path.join(src_dir, 'danceability-discogs-effnet-1.pb')
+
 
     process_all_audio(raw_dir, output_csv,
                       tempo_method=tempo_method,
                       tempo_model_file=tempo_model_file,
                       emb_discogs_model_file=emb_discogs_model_file,
                       emb_msd_model_file=emb_msd_model_file,
-                      genre_model_file=genre_model_file)
+                      genre_model_file=genre_model_file,
+                      voice_model_file=voice_model_file,
+                      danceability_model_file=danceability_model_file)
+
