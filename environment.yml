@@ -16,3 +16,4 @@ dependencies:
       - tensorflow==2.8.0
       - essentia-tensorflow
       - streamlit
+      - protobuf=3.20.1
