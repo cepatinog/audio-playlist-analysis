@@ -170,38 +170,77 @@ def process_all_audio_with_checkpoint(raw_dir, checkpoint_dir,
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
     
+    # Gather all audio file paths
+    all_audio_files = []
     for root, _, files in os.walk(raw_dir):
-        for file in tqdm(files, desc=f"Processing files in {root}"):
-            # Skip files with unwanted substrings (e.g., ":Zone.Identifier")
-            if ":Zone.Identifier" in file:
-                continue
+        for file in files:
             if file.lower().endswith(AUDIO_EXTENSIONS):
-                audio_path = os.path.join(root, file)
-                # Create a safe checkpoint filename based on the relative path.
-                rel_path = os.path.relpath(audio_path, raw_dir)
-                safe_name = rel_path.replace(os.sep, "_")
-                checkpoint_file = os.path.join(checkpoint_dir, safe_name + ".json")
-                if os.path.exists(checkpoint_file):
-                    continue  # Skip already processed file.
-                try:
-                    audio_dict = load_audio_file(audio_path, targetMonoSampleRate=44100, targetTempoSampleRate=11025)
-                    features = extract_all_features(audio_dict,
-                                                    tempo_method=tempo_method,
-                                                    tempo_model_file=tempo_model_file,
-                                                    emb_discogs_model_file=emb_discogs_model_file,
-                                                    emb_msd_model_file=emb_msd_model_file,
-                                                    genre_model_file=genre_model_file,
-                                                    voice_model_file=voice_model_file,
-                                                    danceability_model_file=danceability_model_file,
-                                                    emotion_model_file=emotion_model_file)
-                    features['file'] = audio_path
-                    # Convert all NumPy arrays to lists so JSON can serialize them.
-                    features_converted = convert_numpy(features)
-                    with open(checkpoint_file, 'w') as f:
-                        json.dump(features_converted, f)
-                except Exception as e:
-                    print(f"Error processing {audio_path}: {e}")
-                    traceback.print_exc()
+                all_audio_files.append(os.path.join(root, file))
+                
+    # Process files with one overall progress bar
+    for audio_path in tqdm(all_audio_files, desc="Processing audio files", unit="file"):
+        # Create a safe checkpoint filename based on relative path.
+        rel_path = os.path.relpath(audio_path, raw_dir)
+        safe_name = rel_path.replace(os.sep, "_")
+        checkpoint_file = os.path.join(checkpoint_dir, safe_name + ".json")
+        if os.path.exists(checkpoint_file):
+            continue  # Skip already processed file.
+        try:
+            audio_dict = load_audio_file(audio_path, targetMonoSampleRate=44100, targetTempoSampleRate=11025)
+            features = extract_all_features(audio_dict,
+                                            tempo_method=tempo_method,
+                                            tempo_model_file=tempo_model_file,
+                                            emb_discogs_model_file=emb_discogs_model_file,
+                                            emb_msd_model_file=emb_msd_model_file,
+                                            genre_model_file=genre_model_file,
+                                            voice_model_file=voice_model_file,
+                                            danceability_model_file=danceability_model_file,
+                                            emotion_model_file=emotion_model_file)
+            features['file'] = audio_path
+            # Convert all NumPy arrays to lists recursively
+            features_converted = convert_numpy(features)
+            with open(checkpoint_file, 'w') as f:
+                json.dump(features_converted, f)
+        except Exception as e:
+            print(f"Error processing {audio_path}: {e}")
+            traceback.print_exc()
+
+
+    # # Gather all audio file paths
+    # all_audio_files = []
+
+    # for root, _, files in os.walk(raw_dir):
+    #     for file in tqdm(files, desc=f"Processing files in {root}"):
+    #         # Skip files with unwanted substrings (e.g., ":Zone.Identifier")
+    #         if ":Zone.Identifier" in file:
+    #             continue
+    #         if file.lower().endswith(AUDIO_EXTENSIONS):
+    #             audio_path = os.path.join(root, file)
+    #             # Create a safe checkpoint filename based on the relative path.
+    #             rel_path = os.path.relpath(audio_path, raw_dir)
+    #             safe_name = rel_path.replace(os.sep, "_")
+    #             checkpoint_file = os.path.join(checkpoint_dir, safe_name + ".json")
+    #             if os.path.exists(checkpoint_file):
+    #                 continue  # Skip already processed file.
+    #             try:
+    #                 audio_dict = load_audio_file(audio_path, targetMonoSampleRate=44100, targetTempoSampleRate=11025)
+    #                 features = extract_all_features(audio_dict,
+    #                                                 tempo_method=tempo_method,
+    #                                                 tempo_model_file=tempo_model_file,
+    #                                                 emb_discogs_model_file=emb_discogs_model_file,
+    #                                                 emb_msd_model_file=emb_msd_model_file,
+    #                                                 genre_model_file=genre_model_file,
+    #                                                 voice_model_file=voice_model_file,
+    #                                                 danceability_model_file=danceability_model_file,
+    #                                                 emotion_model_file=emotion_model_file)
+    #                 features['file'] = audio_path
+    #                 # Convert all NumPy arrays to lists so JSON can serialize them.
+    #                 features_converted = convert_numpy(features)
+    #                 with open(checkpoint_file, 'w') as f:
+    #                     json.dump(features_converted, f)
+    #             except Exception as e:
+    #                 print(f"Error processing {audio_path}: {e}")
+    #                 traceback.print_exc()
 
 if __name__ == '__main__':
     src_dir = os.path.dirname(os.path.abspath(__file__))
