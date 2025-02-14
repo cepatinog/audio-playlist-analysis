@@ -3,34 +3,62 @@
 audio_analysis.py
 
 This module processes an entire raw audio collection and extracts multiple features
-using modular extractor functions. For each audio file, it loads the file once
+using modular extractor functions. For each audio file, it loads the file only once
 using the helper function in load_audio.py, then:
   - Uses the stereo audio for loudness extraction,
   - Uses the mono audio (at 44100 Hz) for key extraction,
   - Uses the resampled mono audio (at 11025 Hz) for tempo extraction, and
   - Optionally, uses a mono version resampled to 16000 Hz for embedding extraction 
-    (Discogs-Effnet and MSD-MusicCNN) and genre predictions.
-    
-The combined features are saved into a CSV file.
+    (Discogs-Effnet and MSD-MusicCNN), genre predictions, voice/instrumental classification,
+    danceability (classifier mode), and arousal/valence (emotion).
+
+Features for each audio file are saved as a separate JSON file in a checkpoint folder,
+allowing the process to resume without reprocessing files already analyzed.
 """
 
+import tensorflow as tf
+# Enable GPU memory growth
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+    try:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        print("Memory growth enabled on GPU.")
+    except RuntimeError as e:
+        print(e)
+
 import os
+# Hide unnecessary TensorFlow messages
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 import csv
+import json
 import traceback
 from tqdm import tqdm
 import essentia.standard as es
 import numpy as np
 
 # Import our feature extractor functions using relative imports.
-from .extract_tempo import extract_tempo_features
-from .extract_key import extract_key_features
-from .extract_loudness import extract_loudness_features
-from .extract_embeddings import extract_discogs_effnet_embeddings, extract_msd_musicnn_embeddings
-from .extract_genre import extract_genre_features
-from .extract_voice_instrumental import extract_voice_instrumental
-from .extract_danceability import extract_danceability_features
-from .extract_arousal_valence import extract_arousal_valence_features
-from .load_audio import load_audio_file
+# from .extract_tempo import extract_tempo_features
+# from .extract_key import extract_key_features
+# from .extract_loudness import extract_loudness_features
+# from .extract_embeddings import extract_discogs_effnet_embeddings, extract_msd_musicnn_embeddings
+# from .extract_genre import extract_genre_features
+# from .extract_voice_instrumental import extract_voice_instrumental
+# from .extract_danceability import extract_danceability_features
+# from .extract_arousal_valence import extract_arousal_valence_features
+# from .load_audio import load_audio_file
+
+
+from extract_tempo import extract_tempo_features
+from extract_key import extract_key_features
+from extract_loudness import extract_loudness_features
+from extract_embeddings import extract_discogs_effnet_embeddings, extract_msd_musicnn_embeddings
+from extract_genre import extract_genre_features
+from extract_voice_instrumental import extract_voice_instrumental
+from extract_danceability import extract_danceability_features
+from extract_arousal_valence import extract_arousal_valence_features
+from load_audio import load_audio_file
 
 # Define acceptable audio file extensions.
 AUDIO_EXTENSIONS = ('.mp3', '.wav', '.flac', '.ogg', '.m4a')
@@ -46,35 +74,23 @@ def extract_all_features(audio_dict,
                            emotion_model_file=None):
     """
     Extract all features using the pre-computed audio versions.
-
-    Args:
-        audio_dict (dict): Dictionary with keys:
-                           'stereo_audio' (for loudness extraction),
-                           'mono_audio' (for key extraction),
-                           'mono_tempo' (for tempo extraction).
-        tempo_method (str): 'tempocnn' or 'rhythm' for tempo extraction.
-        tempo_model_file (str): Path to the TempoCNN model (if required).
-        emb_discogs_model_file (str): Path to the Discogs-Effnet model for embeddings (if provided).
-        emb_msd_model_file (str): Path to the MSD-MusicCNN model for embeddings (if provided).
-        genre_model_file (str): Path to the Genre Discogs400 model (if genre predictions should be extracted).
-
-    Returns:
-        dict: Combined dictionary of extracted features.
+    Returns a dictionary with keys for tempo, key, loudness, embeddings, genre, voice/instrumental,
+    danceability, and emotion.
     """
     features = {}
 
-    # --- Tempo Extraction (using mono_tempo, which should be at 11025 Hz) ---
+    # --- Tempo Extraction (mono_tempo at 11025 Hz) ---
     tempo_feats = extract_tempo_features(audio_dict['mono_tempo'],
                                            method=tempo_method,
                                            model_file=tempo_model_file)
     for k, v in tempo_feats.items():
         features[f"tempo_{k}"] = v
 
-    # --- Key Extraction (using mono_audio, which should be at 44100 Hz) ---
+    # --- Key Extraction (mono_audio at 44100 Hz) ---
     key_feats = extract_key_features(audio_dict['mono_audio'])
     features.update(key_feats)
 
-    # --- Loudness Extraction (using stereo_audio, at 44100 Hz) ---
+    # --- Loudness Extraction (stereo_audio at 44100 Hz) ---
     loudness_feats = extract_loudness_features(audio_dict['stereo_audio'],
                                                hopSize=1024/44100,
                                                sampleRate=44100,
@@ -82,10 +98,8 @@ def extract_all_features(audio_dict,
     for k, v in loudness_feats.items():
         features[f"loudness_{k}"] = v
 
-    # --- Embedding and Genre Extraction ---
-    # The embedding models expect a mono audio signal at 16kHz.
-
-    # --- Embedding and Genre & Voice/Dance Extraction ---
+    # --- Embedding and Additional Extraction ---
+    # All embedding models expect a mono signal at 16kHz.
     if emb_discogs_model_file or emb_msd_model_file or genre_model_file or voice_model_file or danceability_model_file or emotion_model_file:
         mono_embeddings = es.Resample(inputSampleRate=audio_dict['sampleRate'], 
                                       outputSampleRate=16000)(audio_dict['mono_audio'])
@@ -107,116 +121,109 @@ def extract_all_features(audio_dict,
 
         # --- Arousal/Valence Extraction ---
         if emotion_model_file:
-            # In this case, we use MSD-MusicCNN embeddings.
-            # Load or reuse msd embeddings; here, we'll use msd_emb if already computed.
-            # Alternatively, resample the mono audio to 16kHz and compute the embedding again.
-            # We'll assume that msd_emb is available; if not, compute it.
-            if 'emb_msd' not in features:
-                msd_emb = extract_msd_musicnn_embeddings(mono_embeddings, model_file=emb_msd_model_file)
-            else:
-                # Convert list back to numpy array.
+            # For emotion extraction, we use MSD-MusicCNN embeddings.
+            # If emb_msd was already computed, reuse it; otherwise, compute it.
+            if "emb_msd" in features:
                 msd_emb = np.array(features["emb_msd"])
+            else:
+                msd_emb = extract_msd_musicnn_embeddings(mono_embeddings, model_file=emb_msd_model_file)
             emotion_predictions = extract_arousal_valence_features(mono_embeddings, 
                                                                     embedding_model_file=emb_msd_model_file, 
                                                                     regression_model_file=emotion_model_file)
             features["arousal_valence"] = emotion_predictions
 
-    # --- Optionally, if no classifier model provided, use signal-based danceability extraction ---
-    if danceability_model_file is None:
-        dance_signal = extract_danceability_features(audio_dict['mono_audio'], mode="signal", sampleRate=44100)
-        features["danceability_signal"] = dance_signal
+    # --- Signal-based Danceability Extraction  ---
+    dance_signal = extract_danceability_features(audio_dict['mono_audio'], mode="signal", sampleRate=44100)
+    features["danceability_signal"] = dance_signal
 
     return features
 
-def process_all_audio(raw_dir, output_csv, 
-                      tempo_method='tempocnn', 
-                      tempo_model_file=None,
-                      emb_discogs_model_file=None, 
-                      emb_msd_model_file=None,
-                      genre_model_file=None):
-    """
-    Process all audio files in the raw directory, extract features, and save them in a CSV file.
 
-    Args:
-        raw_dir (str): Path to the directory with raw audio files.
-        output_csv (str): Path to the CSV file where features will be saved.
-        tempo_method (str): 'tempocnn' or 'rhythm' for tempo extraction.
-        tempo_model_file (str): Path to the TempoCNN model (if required).
-        emb_discogs_model_file (str): Path to the Discogs-Effnet model (if embeddings should be extracted).
-        emb_msd_model_file (str): Path to the MSD-MusicCNN model (if embeddings should be extracted).
-        genre_model_file (str): Path to the Genre Discogs400 model (if genre predictions should be extracted).
-    """
-    results = []  # List to hold feature dictionaries for each file.
 
-    # Walk through the raw directory recursively.
+def convert_numpy(obj):
+    """
+    Recursively convert NumPy arrays in a data structure to lists.
+    """
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {k: convert_numpy(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy(i) for i in obj]
+    else:
+        return obj
+    
+
+def process_all_audio_with_checkpoint(raw_dir, checkpoint_dir, 
+                                        tempo_method='tempocnn', 
+                                        tempo_model_file=None,
+                                        emb_discogs_model_file=None, 
+                                        emb_msd_model_file=None,
+                                        genre_model_file=None,
+                                        voice_model_file=None,
+                                        danceability_model_file=None,
+                                        emotion_model_file=None):
+    """
+    Process all audio files in raw_dir and save each file's extracted features as a separate JSON file
+    in checkpoint_dir. If a file has been processed already (i.e., its JSON exists), skip it.
+    """
+    if not os.path.exists(checkpoint_dir):
+        os.makedirs(checkpoint_dir)
+    
     for root, _, files in os.walk(raw_dir):
         for file in tqdm(files, desc=f"Processing files in {root}"):
+            # Skip files with unwanted substrings (e.g., ":Zone.Identifier")
+            if ":Zone.Identifier" in file:
+                continue
             if file.lower().endswith(AUDIO_EXTENSIONS):
                 audio_path = os.path.join(root, file)
+                # Create a safe checkpoint filename based on the relative path.
+                rel_path = os.path.relpath(audio_path, raw_dir)
+                safe_name = rel_path.replace(os.sep, "_")
+                checkpoint_file = os.path.join(checkpoint_dir, safe_name + ".json")
+                if os.path.exists(checkpoint_file):
+                    continue  # Skip already processed file.
                 try:
-                    # Load the audio file once using our helper.
-                    audio_dict = load_audio_file(audio_path,
-                                                 targetMonoSampleRate=44100,
-                                                 targetTempoSampleRate=11025)
-                    # Extract features from the loaded audio.
+                    audio_dict = load_audio_file(audio_path, targetMonoSampleRate=44100, targetTempoSampleRate=11025)
                     features = extract_all_features(audio_dict,
                                                     tempo_method=tempo_method,
                                                     tempo_model_file=tempo_model_file,
                                                     emb_discogs_model_file=emb_discogs_model_file,
                                                     emb_msd_model_file=emb_msd_model_file,
-                                                    genre_model_file=genre_model_file)
-                    # Include the file path in the feature dictionary.
+                                                    genre_model_file=genre_model_file,
+                                                    voice_model_file=voice_model_file,
+                                                    danceability_model_file=danceability_model_file,
+                                                    emotion_model_file=emotion_model_file)
                     features['file'] = audio_path
-                    results.append(features)
+                    # Convert all NumPy arrays to lists so JSON can serialize them.
+                    features_converted = convert_numpy(features)
+                    with open(checkpoint_file, 'w') as f:
+                        json.dump(features_converted, f)
                 except Exception as e:
                     print(f"Error processing {audio_path}: {e}")
                     traceback.print_exc()
 
-    # Write the results to a CSV file.
-    if results:
-        fieldnames = list(results[0].keys())
-    else:
-        fieldnames = []
-
-    with open(output_csv, 'w', newline='') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in results:
-            writer.writerow(row)
-
-    print(f"\nFeature extraction complete. Results saved to {output_csv}")
-
 if __name__ == '__main__':
-    # Determine project root (assuming this file is in src/)
     src_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(src_dir, '..'))
     raw_dir = os.path.join(project_root, 'data', 'raw')
-    output_csv = os.path.join(project_root, 'data', 'processed', 'all_features.csv')
+    checkpoint_dir = os.path.join(project_root, 'data', 'processed', 'features')
 
-    # For tempo extraction via TempoCNN, specify the model file path.
     tempo_model_file = os.path.join(src_dir, 'deeptemp-k16-3.pb')
     tempo_method = 'tempocnn'
-
-    # Specify embedding model files.
     emb_discogs_model_file = os.path.join(src_dir, 'discogs-effnet-bs64-1.pb')
     emb_msd_model_file = os.path.join(src_dir, 'msd-musicnn-1.pb')
-    # Specify the genre model file.
     genre_model_file = os.path.join(src_dir, 'genre_discogs400-discogs-effnet-1.pb')
-    # Specify the voice_instrumental model file.
     voice_model_file = os.path.join(src_dir, 'voice_instrumental-discogs-effnet-1.pb')
-    # Specify the daceability model file.
     danceability_model_file = os.path.join(src_dir, 'danceability-discogs-effnet-1.pb')
-    # Specify the emotion model file.
     emotion_model_file = os.path.join(src_dir, 'emomusic-msd-musicnn-2.pb')
 
-
-    process_all_audio(raw_dir, output_csv,
-                      tempo_method=tempo_method,
-                      tempo_model_file=tempo_model_file,
-                      emb_discogs_model_file=emb_discogs_model_file,
-                      emb_msd_model_file=emb_msd_model_file,
-                      genre_model_file=genre_model_file,
-                      voice_model_file=voice_model_file,
-                      danceability_model_file=danceability_model_file,
-                      emotion_model_file=emotion_model_file)
-
+    process_all_audio_with_checkpoint(raw_dir, checkpoint_dir,
+                                        tempo_method=tempo_method,
+                                        tempo_model_file=tempo_model_file,
+                                        emb_discogs_model_file=emb_discogs_model_file,
+                                        emb_msd_model_file=emb_msd_model_file,
+                                        genre_model_file=genre_model_file,
+                                        voice_model_file=voice_model_file,
+                                        danceability_model_file=danceability_model_file,
+                                        emotion_model_file=emotion_model_file)
