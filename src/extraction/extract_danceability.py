@@ -50,7 +50,7 @@ def adjust_embedding_dimension(embedding, expected_dim=1280):
     Args:
         embedding (np.array): A 2D numpy array of shape (num_frames, embedding_dim)
                               or a 1D numpy array of shape (embedding_dim,).
-        expected_dim (int): The desired dimensionality (default 1200).
+        expected_dim (int): The desired dimensionality (default 1280).
         
     Returns:
         np.array: A 2D numpy array with shape (1, expected_dim).
