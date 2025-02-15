@@ -16,7 +16,9 @@ Features for each audio file are saved as a separate JSON file in a checkpoint f
 allowing the process to resume without reprocessing files already analyzed.
 """
 
+
 import tensorflow as tf
+
 # Enable GPU memory growth
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
@@ -28,55 +30,48 @@ if gpus:
         print(e)
 
 import os
-# Hide unnecessary TensorFlow messages
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-
-import csv
 import json
+import csv
 import traceback
 from tqdm import tqdm
 import essentia.standard as es
 import numpy as np
 
-# Import our feature extractor functions using relative imports.
-# from .extract_tempo import extract_tempo_features
-# from .extract_key import extract_key_features
-# from .extract_loudness import extract_loudness_features
-# from .extract_embeddings import extract_discogs_effnet_embeddings, extract_msd_musicnn_embeddings
-# from .extract_genre import extract_genre_features
-# from .extract_voice_instrumental import extract_voice_instrumental
-# from .extract_danceability import extract_danceability_features
-# from .extract_arousal_valence import extract_arousal_valence_features
-# from .load_audio import load_audio_file
 
+# Hide TensorFlow info messages
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
-from extraction.extract_tempo import extract_tempo_features
-from extraction.extract_key import extract_key_features
-from extraction.extract_loudness import extract_loudness_features
-from extraction.extract_embeddings import extract_discogs_effnet_embeddings, extract_msd_musicnn_embeddings
-from extraction.extract_genre import extract_genre_features
-from extraction.extract_voice_instrumental import extract_voice_instrumental
-from extraction.extract_danceability import extract_danceability_features
-from extraction.extract_arousal_valence import extract_arousal_valence_features
+# Import configuration and our extractor functions.
+from config import (RAW_DIR, PROCESSED_FEATURES_DIR, AUDIO_EXTENSIONS,
+                    TEMPO_MODEL_FILE, EMB_DISCOGS_MODEL_FILE, EMB_MSD_MODEL_FILE,
+                    GENRE_MODEL_FILE, VOICE_MODEL_FILE, DANCEABILITY_MODEL_FILE,
+                    EMOTION_MODEL_FILE, TEMPO_METHOD)
 
-from load_audio import load_audio_file
+from extraction import (extract_tempo_features,
+                        extract_key_features,
+                        extract_loudness_features,
+                        extract_discogs_effnet_embeddings, extract_msd_musicnn_embeddings,
+                        extract_genre_features,
+                        extract_voice_instrumental,
+                        extract_danceability_features,
+                        extract_arousal_valence_features)
 
-# Define acceptable audio file extensions.
-AUDIO_EXTENSIONS = ('.mp3', '.wav', '.flac', '.ogg', '.m4a')
+from utils import load_audio_file, convert_numpy
+
 
 def extract_all_features(audio_dict, 
-                           tempo_method='tempocnn', 
-                           tempo_model_file=None,
-                           emb_discogs_model_file=None, 
-                           emb_msd_model_file=None,
-                           genre_model_file=None,
-                           voice_model_file=None,
-                           danceability_model_file=None,
-                           emotion_model_file=None):
+                           tempo_method=TEMPO_METHOD, 
+                           tempo_model_file=TEMPO_MODEL_FILE,
+                           emb_discogs_model_file=EMB_DISCOGS_MODEL_FILE, 
+                           emb_msd_model_file=EMB_MSD_MODEL_FILE,
+                           genre_model_file=GENRE_MODEL_FILE,
+                           voice_model_file=VOICE_MODEL_FILE,
+                           danceability_model_file=DANCEABILITY_MODEL_FILE,
+                           emotion_model_file=EMOTION_MODEL_FILE):
     """
-    Extract all features using the pre-computed audio versions.
-    Returns a dictionary with keys for tempo, key, loudness, embeddings, genre, voice/instrumental,
-    danceability, and emotion.
+    Extract all features from the audio.
+    Returns a dictionary with keys for tempo, key, loudness, embeddings, genre,
+    voice/instrumental, danceability, and emotion.
     """
     features = {}
 
@@ -101,7 +96,8 @@ def extract_all_features(audio_dict,
 
     # --- Embedding and Additional Extraction ---
     # All embedding models expect a mono signal at 16kHz.
-    if emb_discogs_model_file or emb_msd_model_file or genre_model_file or voice_model_file or danceability_model_file or emotion_model_file:
+    if any([emb_discogs_model_file, emb_msd_model_file, genre_model_file, 
+            voice_model_file, danceability_model_file, emotion_model_file]):
         mono_embeddings = es.Resample(inputSampleRate=audio_dict['sampleRate'], 
                                       outputSampleRate=16000)(audio_dict['mono_audio'])
         if emb_discogs_model_file:
@@ -122,8 +118,6 @@ def extract_all_features(audio_dict,
 
         # --- Arousal/Valence Extraction ---
         if emotion_model_file:
-            # For emotion extraction, we use MSD-MusicCNN embeddings.
-            # If emb_msd was already computed, reuse it; otherwise, compute it.
             if "emb_msd" in features:
                 msd_emb = np.array(features["emb_msd"])
             else:
@@ -139,34 +133,18 @@ def extract_all_features(audio_dict,
 
     return features
 
-
-
-def convert_numpy(obj):
-    """
-    Recursively convert NumPy arrays in a data structure to lists.
-    """
-    if isinstance(obj, np.ndarray):
-        return obj.tolist()
-    elif isinstance(obj, dict):
-        return {k: convert_numpy(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [convert_numpy(i) for i in obj]
-    else:
-        return obj
-    
-
 def process_all_audio_with_checkpoint(raw_dir, checkpoint_dir, 
-                                        tempo_method='tempocnn', 
-                                        tempo_model_file=None,
-                                        emb_discogs_model_file=None, 
-                                        emb_msd_model_file=None,
-                                        genre_model_file=None,
-                                        voice_model_file=None,
-                                        danceability_model_file=None,
-                                        emotion_model_file=None):
+                                        tempo_method=TEMPO_METHOD, 
+                                        tempo_model_file=TEMPO_MODEL_FILE,
+                                        emb_discogs_model_file=EMB_DISCOGS_MODEL_FILE, 
+                                        emb_msd_model_file=EMB_MSD_MODEL_FILE,
+                                        genre_model_file=GENRE_MODEL_FILE,
+                                        voice_model_file=VOICE_MODEL_FILE,
+                                        danceability_model_file=DANCEABILITY_MODEL_FILE,
+                                        emotion_model_file=EMOTION_MODEL_FILE):
     """
-    Process all audio files in raw_dir and save each file's extracted features as a separate JSON file
-    in checkpoint_dir. If a file has been processed already (i.e., its JSON exists), skip it.
+    Process all audio files in raw_dir and save each file's extracted features as a JSON file
+    in checkpoint_dir. Files already processed (whose JSON exists) are skipped.
     """
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
@@ -178,14 +156,13 @@ def process_all_audio_with_checkpoint(raw_dir, checkpoint_dir,
             if file.lower().endswith(AUDIO_EXTENSIONS):
                 all_audio_files.append(os.path.join(root, file))
                 
-    # Process files with one overall progress bar
+    # Process with a unified progress bar
     for audio_path in tqdm(all_audio_files, desc="Processing audio files", unit="file"):
-        # Create a safe checkpoint filename based on relative path.
         rel_path = os.path.relpath(audio_path, raw_dir)
         safe_name = rel_path.replace(os.sep, "_")
         checkpoint_file = os.path.join(checkpoint_dir, safe_name + ".json")
         if os.path.exists(checkpoint_file):
-            continue  # Skip already processed file.
+            continue  # Skip already processed files.
         try:
             audio_dict = load_audio_file(audio_path, targetMonoSampleRate=44100, targetTempoSampleRate=11025)
             features = extract_all_features(audio_dict,
@@ -198,7 +175,6 @@ def process_all_audio_with_checkpoint(raw_dir, checkpoint_dir,
                                             danceability_model_file=danceability_model_file,
                                             emotion_model_file=emotion_model_file)
             features['file'] = audio_path
-            # Convert all NumPy arrays to lists recursively
             features_converted = convert_numpy(features)
             with open(checkpoint_file, 'w') as f:
                 json.dump(features_converted, f)
@@ -207,31 +183,12 @@ def process_all_audio_with_checkpoint(raw_dir, checkpoint_dir,
             traceback.print_exc()
 
 if __name__ == '__main__':
-
-    
-    src_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(src_dir, '..'))
-    raw_dir = os.path.join(project_root, 'data', 'raw')
-    checkpoint_dir = os.path.join(project_root, 'data', 'processed', 'features')
-
-    models_dir = os.path.join(src_dir, 'models')
-
-    tempo_model_file         = os.path.join(models_dir, 'deeptemp-k16-3.pb')
-    emb_discogs_model_file   = os.path.join(models_dir, 'discogs-effnet-bs64-1.pb')
-    emb_msd_model_file       = os.path.join(models_dir, 'msd-musicnn-1.pb')
-    genre_model_file         = os.path.join(models_dir, 'genre_discogs400-discogs-effnet-1.pb')
-    voice_model_file         = os.path.join(models_dir, 'voice_instrumental-discogs-effnet-1.pb')
-    danceability_model_file  = os.path.join(models_dir, 'danceability-discogs-effnet-1.pb')
-    emotion_model_file       = os.path.join(models_dir, 'emomusic-msd-musicnn-2.pb')
-
-    tempo_method = 'tempocnn'
-
-    process_all_audio_with_checkpoint(raw_dir, checkpoint_dir,
-                                        tempo_method=tempo_method,
-                                        tempo_model_file=tempo_model_file,
-                                        emb_discogs_model_file=emb_discogs_model_file,
-                                        emb_msd_model_file=emb_msd_model_file,
-                                        genre_model_file=genre_model_file,
-                                        voice_model_file=voice_model_file,
-                                        danceability_model_file=danceability_model_file,
-                                        emotion_model_file=emotion_model_file)
+    process_all_audio_with_checkpoint(RAW_DIR, PROCESSED_FEATURES_DIR,
+                                        tempo_method=TEMPO_METHOD,
+                                        tempo_model_file=TEMPO_MODEL_FILE,
+                                        emb_discogs_model_file=EMB_DISCOGS_MODEL_FILE,
+                                        emb_msd_model_file=EMB_MSD_MODEL_FILE,
+                                        genre_model_file=GENRE_MODEL_FILE,
+                                        voice_model_file=VOICE_MODEL_FILE,
+                                        danceability_model_file=DANCEABILITY_MODEL_FILE,
+                                        emotion_model_file=EMOTION_MODEL_FILE)
