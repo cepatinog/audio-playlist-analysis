@@ -50,14 +50,15 @@ import numpy as np
 # from .load_audio import load_audio_file
 
 
-from extract_tempo import extract_tempo_features
-from extract_key import extract_key_features
-from extract_loudness import extract_loudness_features
-from extract_embeddings import extract_discogs_effnet_embeddings, extract_msd_musicnn_embeddings
-from extract_genre import extract_genre_features
-from extract_voice_instrumental import extract_voice_instrumental
-from extract_danceability import extract_danceability_features
-from extract_arousal_valence import extract_arousal_valence_features
+from extraction.extract_tempo import extract_tempo_features
+from extraction.extract_key import extract_key_features
+from extraction.extract_loudness import extract_loudness_features
+from extraction.extract_embeddings import extract_discogs_effnet_embeddings, extract_msd_musicnn_embeddings
+from extraction.extract_genre import extract_genre_features
+from extraction.extract_voice_instrumental import extract_voice_instrumental
+from extraction.extract_danceability import extract_danceability_features
+from extraction.extract_arousal_valence import extract_arousal_valence_features
+
 from load_audio import load_audio_file
 
 # Define acceptable audio file extensions.
@@ -205,57 +206,25 @@ def process_all_audio_with_checkpoint(raw_dir, checkpoint_dir,
             print(f"Error processing {audio_path}: {e}")
             traceback.print_exc()
 
-
-    # # Gather all audio file paths
-    # all_audio_files = []
-
-    # for root, _, files in os.walk(raw_dir):
-    #     for file in tqdm(files, desc=f"Processing files in {root}"):
-    #         # Skip files with unwanted substrings (e.g., ":Zone.Identifier")
-    #         if ":Zone.Identifier" in file:
-    #             continue
-    #         if file.lower().endswith(AUDIO_EXTENSIONS):
-    #             audio_path = os.path.join(root, file)
-    #             # Create a safe checkpoint filename based on the relative path.
-    #             rel_path = os.path.relpath(audio_path, raw_dir)
-    #             safe_name = rel_path.replace(os.sep, "_")
-    #             checkpoint_file = os.path.join(checkpoint_dir, safe_name + ".json")
-    #             if os.path.exists(checkpoint_file):
-    #                 continue  # Skip already processed file.
-    #             try:
-    #                 audio_dict = load_audio_file(audio_path, targetMonoSampleRate=44100, targetTempoSampleRate=11025)
-    #                 features = extract_all_features(audio_dict,
-    #                                                 tempo_method=tempo_method,
-    #                                                 tempo_model_file=tempo_model_file,
-    #                                                 emb_discogs_model_file=emb_discogs_model_file,
-    #                                                 emb_msd_model_file=emb_msd_model_file,
-    #                                                 genre_model_file=genre_model_file,
-    #                                                 voice_model_file=voice_model_file,
-    #                                                 danceability_model_file=danceability_model_file,
-    #                                                 emotion_model_file=emotion_model_file)
-    #                 features['file'] = audio_path
-    #                 # Convert all NumPy arrays to lists so JSON can serialize them.
-    #                 features_converted = convert_numpy(features)
-    #                 with open(checkpoint_file, 'w') as f:
-    #                     json.dump(features_converted, f)
-    #             except Exception as e:
-    #                 print(f"Error processing {audio_path}: {e}")
-    #                 traceback.print_exc()
-
 if __name__ == '__main__':
+
+    
     src_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(src_dir, '..'))
     raw_dir = os.path.join(project_root, 'data', 'raw')
     checkpoint_dir = os.path.join(project_root, 'data', 'processed', 'features')
 
-    tempo_model_file = os.path.join(src_dir, 'deeptemp-k16-3.pb')
+    models_dir = os.path.join(src_dir, 'models')
+
+    tempo_model_file         = os.path.join(models_dir, 'deeptemp-k16-3.pb')
+    emb_discogs_model_file   = os.path.join(models_dir, 'discogs-effnet-bs64-1.pb')
+    emb_msd_model_file       = os.path.join(models_dir, 'msd-musicnn-1.pb')
+    genre_model_file         = os.path.join(models_dir, 'genre_discogs400-discogs-effnet-1.pb')
+    voice_model_file         = os.path.join(models_dir, 'voice_instrumental-discogs-effnet-1.pb')
+    danceability_model_file  = os.path.join(models_dir, 'danceability-discogs-effnet-1.pb')
+    emotion_model_file       = os.path.join(models_dir, 'emomusic-msd-musicnn-2.pb')
+
     tempo_method = 'tempocnn'
-    emb_discogs_model_file = os.path.join(src_dir, 'discogs-effnet-bs64-1.pb')
-    emb_msd_model_file = os.path.join(src_dir, 'msd-musicnn-1.pb')
-    genre_model_file = os.path.join(src_dir, 'genre_discogs400-discogs-effnet-1.pb')
-    voice_model_file = os.path.join(src_dir, 'voice_instrumental-discogs-effnet-1.pb')
-    danceability_model_file = os.path.join(src_dir, 'danceability-discogs-effnet-1.pb')
-    emotion_model_file = os.path.join(src_dir, 'emomusic-msd-musicnn-2.pb')
 
     process_all_audio_with_checkpoint(raw_dir, checkpoint_dir,
                                         tempo_method=tempo_method,
