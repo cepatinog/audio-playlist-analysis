@@ -20,5 +20,14 @@ VOICE_MODEL_FILE         = os.path.join(MODELS_DIR, 'voice_instrumental-discogs-
 DANCEABILITY_MODEL_FILE  = os.path.join(MODELS_DIR, 'danceability-discogs-effnet-1.pb')
 EMOTION_MODEL_FILE       = os.path.join(MODELS_DIR, 'emomusic-msd-musicnn-2.pb')
 
+# Model metadata file paths (.json)
+TEMPO_MODEL_JSON         = os.path.join(MODELS_DIR, 'deeptemp-k16-3.json')
+EMB_DISCOGS_MODEL_JSON   = os.path.join(MODELS_DIR, 'discogs-effnet-bs64-1.json')
+EMB_MSD_MODEL_JSON       = os.path.join(MODELS_DIR, 'msd-musicnn-1.json')
+GENRE_MODEL_JSON         = os.path.join(MODELS_DIR, 'genre_discogs400-discogs-effnet-1.json')
+VOICE_MODEL_JSON         = os.path.join(MODELS_DIR, 'voice_instrumental-discogs-effnet-1.json')
+DANCEABILITY_MODEL_JSON  = os.path.join(MODELS_DIR, 'danceability-discogs-effnet-1.json')
+EMOTION_MODEL_JSON_JSON  = os.path.join(MODELS_DIR, 'emomusic-msd-musicnn-2.json')
+
 # Other constants
 TEMPO_METHOD = 'tempocnn'
