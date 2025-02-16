@@ -5,11 +5,11 @@ import pandas as pd
 import numpy as np
 
 # Configuration
-
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 # Path to the final descriptors TSV file (adjust this path as needed)
-DESCRIPTORS_TSV = os.path.join("final_descriptors.tsv")
+DESCRIPTORS_TSV = os.path.join(PROJECT_ROOT, "apps", "playlist_data", "final_descriptors.tsv")
 # Path where the generated playlist will be saved
-PLAYLIST_FILE = os.path.join("generated_playlist.m3u8")
+PLAYLIST_FILE = os.path.join(PROJECT_ROOT, "apps", "playlist_data", "generated_playlist.m3u8")
 
 
 # Load Final Descriptors
