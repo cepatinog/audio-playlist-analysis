@@ -2,7 +2,8 @@
 
 This report summarizes the design decisions, methodologies, observations, and personal reflections I developed over the course of the project. All source code, extracted features, statistical analyses, and UI implementations are included in the project repository for further review:
 
-https://github.com/cepatinog/audio-playlist-analysis.git
+## 🚀 GitHub Repository
+🔗 **[View the complete source code and resources on GitHub](https://github.com/cepatinog/audio-playlist-analysis.git)** 🔗
 
 ## 1. Overview
 In this project, I developed a modular system to automatically extract meaningful musical features from a large audio collection, perform statistical analyses, and build interactive user interfaces for playlist generation. The system consists of three major components:
@@ -12,8 +13,6 @@ In this project, I developed a modular system to automatically extract meaningfu
 - **Playlist Generation Interfaces:** I built two Streamlit apps:
   - A descriptor‑based UI that filters tracks by tempo, key, danceability, emotion, and genre.
   - A similarity‑based UI that computes cosine similarity between track embeddings (both Discogs‑Effnet and MSD‑MusicCNN) to create playlists of similar tracks.
-
-In this report, I discuss the design decisions and observations made during each phase of the project.
 
 ---
 
