@@ -32,6 +32,15 @@ Two Streamlit applications:
 - **Descriptor‑Based Playlist Generator**: Filter tracks by tempo, voice/instrumental, danceability, emotion, key/scale, and genre.
 - **Similarity‑Based Playlist Generator**: Select a query track and compute the top 10 most similar tracks using cosine similarity on both embedding types.
 
+
+## UI Screenshots
+### Descriptor-Based Playlist Generator:
+![Descriptor-Based UI](reports/descriptor_based_ui.png)
+
+### Similarity-Based Playlist Generator:
+![Similarity-Based UI](reports/similarity_based_ui.png)
+
+
 ## Project Structure
 ```
 AMPLAB [WSL: UBUNTU]
